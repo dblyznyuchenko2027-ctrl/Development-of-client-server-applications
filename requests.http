@@ -1,0 +1,28 @@
+@baseUrl = http://localhost:5080
+
+### Health
+GET {{baseUrl}}/health
+
+### List projects
+GET {{baseUrl}}/api/projects
+
+### Get project
+GET {{baseUrl}}/api/projects/1
+
+### Create project (owner 2 = seeded manager)
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "New project", "description": "Created via .http file", "ownerId": 2 }
+
+### Invalid payload -> 400
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "", "ownerId": 0 }
+
+### Unknown owner -> 400
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "X", "ownerId": 9999 }
