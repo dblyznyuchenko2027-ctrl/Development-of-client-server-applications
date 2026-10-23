@@ -1,0 +1,145 @@
+@baseUrl = http://localhost:5080
+
+### ---------- Health ----------
+GET {{baseUrl}}/health
+
+### ---------- Projects ----------
+### List: pagination + search + sort (response header X-Db-Query-Count = 2)
+GET {{baseUrl}}/api/projects?page=1&pageSize=5&search=demo&sort=-createdAt,name
+
+### Filter by owner
+GET {{baseUrl}}/api/projects?ownerId=2
+
+### Get one (nested owner, members, tasks)
+GET {{baseUrl}}/api/projects/1
+
+### Create (owner 2 = seeded manager) -> 201 + Location
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "New project", "description": "Created via .http file", "ownerId": 2 }
+
+### Update (PUT) -> 200
+PUT {{baseUrl}}/api/projects/1
+Content-Type: application/json
+
+{ "name": "Demo project (renamed)", "description": "Updated" }
+
+### Add member (idempotent) -> 204
+PUT {{baseUrl}}/api/projects/1/members/1
+
+### Remove member -> 204 (409 for the owner or a member with assigned tasks)
+DELETE {{baseUrl}}/api/projects/1/members/1
+
+### Delete project (cascades tasks/comments) -> 204
+DELETE {{baseUrl}}/api/projects/999999
+
+### ---------- Tasks ----------
+### Global list: filters + sort (high priority, not done, soonest due date first)
+GET {{baseUrl}}/api/tasks?priority=High&status=InProgress&sort=dueDate&page=1&pageSize=10
+
+### Tasks of one project with search and due-date range
+GET {{baseUrl}}/api/projects/2/tasks?search=demo&dueFrom=2026-10-24&dueTo=2026-12-31&sort=-priority,title
+
+### Get one (nested project, assignee, comments with authors, attachments)
+GET {{baseUrl}}/api/tasks/1
+
+### Create task in project 1 -> 201
+POST {{baseUrl}}/api/projects/1/tasks
+Content-Type: application/json
+
+{ "title": "Implement CRUD", "description": "Stage 2", "priority": "High", "assigneeId": 3 }
+
+### Update task (PUT = full replacement) -> 200
+PUT {{baseUrl}}/api/tasks/1
+Content-Type: application/json
+
+{ "title": "Set up repository", "status": "Done", "priority": "High", "assigneeId": 2 }
+
+### Change only the status (PATCH) -> 200
+PATCH {{baseUrl}}/api/tasks/2/status
+Content-Type: application/json
+
+{ "status": "Done" }
+
+### Delete task -> 204
+DELETE {{baseUrl}}/api/tasks/999999
+
+### ---------- Comments ----------
+GET {{baseUrl}}/api/tasks/3/comments?sort=-createdAt
+
+###
+POST {{baseUrl}}/api/tasks/3/comments
+Content-Type: application/json
+
+{ "text": "Looks good", "authorId": 2 }
+
+###
+PUT {{baseUrl}}/api/comments/1
+Content-Type: application/json
+
+{ "text": "Edited comment" }
+
+###
+DELETE {{baseUrl}}/api/comments/1
+
+### ---------- Users ----------
+GET {{baseUrl}}/api/users?role=Member&search=team&sort=displayName
+
+###
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{ "email": "new.user@example.com", "displayName": "New User", "role": "Member" }
+
+###
+PUT {{baseUrl}}/api/users/3
+Content-Type: application/json
+
+{ "email": "member@example.com", "displayName": "Team Member", "role": "Member" }
+
+### Owner of projects -> 409
+DELETE {{baseUrl}}/api/users/2
+
+### ---------- Errors (all application/problem+json) ----------
+### 400 validation: errors map with camelCase keys
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "", "ownerId": 0 }
+
+### 400 owner does not exist (field "ownerId")
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+
+{ "name": "X", "ownerId": 999999 }
+
+### 400 malformed JSON / unknown enum value
+POST {{baseUrl}}/api/projects/1/tasks
+Content-Type: application/json
+
+{ "title": "Bad", "priority": "Urgent" }
+
+### 400 unknown sort field
+GET {{baseUrl}}/api/tasks?sort=password
+
+### 400 invalid paging
+GET {{baseUrl}}/api/tasks?page=0&pageSize=1000
+
+### 404 resource not found
+GET {{baseUrl}}/api/tasks/999999
+
+### 409 duplicate e-mail
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{ "email": "admin@example.com", "displayName": "Duplicate" }
+
+### 422 assignee is not a member of the project (admin id 1 is not in project 1)
+POST {{baseUrl}}/api/projects/1/tasks
+Content-Type: application/json
+
+{ "title": "Needs member", "assigneeId": 1 }
+
+### 405 method not allowed
+DELETE {{baseUrl}}/api/projects
