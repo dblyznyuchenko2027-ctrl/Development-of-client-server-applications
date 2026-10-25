@@ -1,6 +1,7 @@
 using TaskTracker.Api.Common;
 using TaskTracker.Api.Domain;
 using TaskTracker.Api.Dtos;
+using TaskTracker.Api.Infrastructure.Storage;
 using TaskTracker.Api.Repositories;
 
 namespace TaskTracker.Api.Services;
@@ -9,6 +10,8 @@ public class ProjectService(
     IProjectRepository projects,
     ITaskRepository tasks,
     IUserRepository users,
+    IAttachmentRepository attachments,
+    IFileStorage storage,
     IUnitOfWork unitOfWork) : IProjectService
 {
     public async Task<PagedResponse<ProjectResponse>> ListAsync(ProjectListQuery query, CancellationToken ct = default)
@@ -63,9 +66,17 @@ public class ProjectService(
     {
         var project = await projects.GetByIdAsync(id, ct) ?? throw new NotFoundException("Project", id);
 
-        // Tasks, their comments/attachments and memberships are removed by ON DELETE CASCADE.
+        var filePaths = await attachments.ListStoragePathsByProjectAsync(id, ct);
+
+        // Tasks, their comments/attachments and memberships are removed by ON DELETE CASCADE;
+        // the files on disk are removed after the commit.
         projects.Remove(project);
         await unitOfWork.SaveChangesAsync(ct);
+
+        foreach (var path in filePaths)
+        {
+            storage.Delete(path);
+        }
     }
 
     public async Task AddMemberAsync(int projectId, int userId, CancellationToken ct = default)

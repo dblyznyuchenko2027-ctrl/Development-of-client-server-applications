@@ -1,4 +1,4 @@
-# API: конвенції та поведінка (етап 2)
+# API: конвенції та поведінка (етапи 2–3)
 
 ## Ресурси та зв'язки
 
@@ -35,6 +35,11 @@
 | POST | `/api/tasks/{taskId}/comments` | 201 + `Location` | 400, 404 |
 | PUT | `/api/comments/{id}` | 200 | 400, 404 |
 | DELETE | `/api/comments/{id}` | 204 | 404 |
+| GET | `/api/tasks/{taskId}/attachments` | 200 | 404 |
+| POST | `/api/tasks/{taskId}/attachments` | 201 + `Location` (multipart) | 400, 404, 413, 415, 422 |
+| GET | `/api/attachments/{id}` | 200 (метадані) | 404 |
+| GET | `/api/attachments/{id}/download` | 200 (файл) | 404 |
+| DELETE | `/api/attachments/{id}` | 204 (рядок БД + файл) | 404 |
 | GET | `/api/users` | 200 | 400 |
 | GET | `/api/users/{id}` | 200 | 404 |
 | POST | `/api/users` | 201 + `Location` | 400, 409 (e-mail зайнятий) |
@@ -77,10 +82,11 @@
 | Код | Коли | Приклад |
 |---|---|---|
 | 400 | порушено правила DTO (`Required`, `StringLength`, `Range`, e-mail, enum, `dueDate` у минулому), некоректний JSON, некоректні `page/pageSize/sort/фільтри`, посилання на неіснуючу сутність у тілі (`ownerId`, `assigneeId`, `authorId`) | `{"errors":{"ownerId":["User with id 999999 does not exist."]}}` |
-| 404 | ресурс зі шляху не знайдено; невідомий маршрут | `Task with id 5 was not found.` |
-| 405 / 415 | метод не дозволено / не JSON | порожні відповіді ASP.NET Core перетворюються на problem+json |
+| 404 | ресурс зі шляху не знайдено; невідомий маршрут; для `download` — файл зник зі сховища | `Task with id 5 was not found.` |
+| 413 | завантажуваний файл більший за ліміт (`Storage:MaxFileSizeBytes`, 5 МіБ; повне тіло запиту ≤ 10 МіБ) | `The file is 5242881 bytes; the maximum allowed size is 5242880 bytes.` |
+| 405 / 415 | метод не дозволено / не JSON; для файлів — недозволений тип (розширення, MIME або вміст) | порожні відповіді ASP.NET Core перетворюються на problem+json |
 | 409 | конфлікт зі станом: дублікат e-mail, видалення власника/автора, зняття учасника з задачами | `A user with e-mail '…' already exists.` |
-| 422 | синтаксично коректний запит порушує бізнес-правило: виконавець не є учасником проєкту | `User 1 is not a member of project 1 …` |
+| 422 | синтаксично коректний запит порушує бізнес-правило: виконавець не є учасником проєкту; у задачі вже `MaxFilesPerTask` (20) вкладень | `User 1 is not a member of project 1 …` |
 | 500 | необроблений виняток; `detail` приховано поза Development | — |
 
 Реалізація: `Infrastructure/GlobalExceptionHandler.cs` (винятки → problem+json),
@@ -119,3 +125,53 @@ curl -s -D - -o /dev/null "http://localhost:5080/api/tasks?pageSize=100" | grep 
 
 Пагінація працює у БД (`OFFSET/LIMIT`), `COUNT` виконується до підвантаження зв'язків; на сторінку з
 `Include` колекцій не накладається (список задач не вкладає коментарі), тож `Skip/Take` не конфліктує з JOIN.
+
+## OpenAPI / Swagger (етап 3)
+
+Специфікація генерується з коду (Swashbuckle.AspNetCore): маршрути, типи DTO та валідаційні атрибути беруться з
+контролерів і моделей, опис операцій — з XML-коментарів (`/// <summary>`, `<remarks>`, `<param>`, `<response>`),
+коди відповідей — з `[ProducesResponseType]` та скорочень у `Infrastructure/OpenApi/ProblemResponseAttributes.cs`
+(усі помилки описані як `application/problem+json`). Тому документація не розходиться з кодом: нова дія контролера
+з'являється у специфікації автоматично, а тест `OpenApiTests` падає, якщо в ключової операції зникає `summary`.
+
+| Адреса | Що |
+|---|---|
+| `/swagger` | інтерактивний Swagger UI (можна виконувати запити, у т.ч. завантажувати файли) |
+| `/swagger/v1/swagger.json` | OpenAPI 3 у JSON |
+
+Увімкнено завжди в `Development`; в інших середовищах — лише з `Swagger:Enabled=true` (`Swagger__Enabled=true`).
+Збереження специфікації у файл: `./scripts/export-openapi.sh` → `docs/openapi.json`.
+
+## Завантаження файлів (етап 3)
+
+| Крок | Реалізація |
+|---|---|
+| Запит | `POST /api/tasks/{taskId}/attachments`, `multipart/form-data`, поле `file` |
+| Дозволені типи | `.png .jpg .jpeg .gif .pdf .txt .md .csv` (`Services/AllowedFileTypes.cs`) |
+| Перевірка типу | 1) розширення зі «білого списку»; 2) MIME клієнта (якщо передано і не `application/octet-stream`) сумісний з розширенням; 3) перші байти файлу збігаються з форматом (магічне число PNG/JPEG/GIF/PDF; для текстових — без байтів `0x00`). Перейменований `virus.exe` → `virus.png` відхиляється (415) |
+| Перевірка розміру | `Storage:MaxFileSizeBytes` (за замовчуванням 5 МіБ) → 413; порожній файл → 400; сумарне обмеження тіла запиту 10 МіБ (`[RequestSizeLimit]`) |
+| Ліміт кількості | `Storage:MaxFilesPerTask` (20) → 422 |
+| Зберігання | `Storage:RootPath` (за замовчуванням `uploads/` поруч із застосунком, у git не потрапляє). Ім'я на диску — GUID + розширення (`{taskId}/{guid}.png`), тож ім'я від клієнта не впливає на шлях (захист від `../`). Оригінальна (очищена від шляху) назва лежить у БД |
+| Метадані | таблиця `attachments` (`FileName`, `ContentType`, `SizeBytes`, `StoragePath`, `TaskItemId`) — **міграція не потрібна**, таблиця є з етапу 1 |
+| Повернення | `GET /api/attachments/{id}/download`: потік файлу, `Content-Type` — перевірений серверний (не клієнтський), `Content-Disposition: attachment; filename=…`, `X-Content-Type-Options: nosniff`, підтримка `Range` |
+| Узгодженість | не вдалось записати в БД → файл видаляється; видалення вкладення / задачі / проєкту прибирає і файли з диска (після коміту) |
+
+`Content-Type` у БД завжди канонічний для розширення (`.jpg` → `image/jpeg`), а не те, що надіслав клієнт.
+Вкладення також повертаються у `GET /api/tasks/{id}` у масиві `attachments`.
+
+## Тестування (етап 3)
+
+Проєкт `tests/TaskTracker.Tests` (xUnit + `WebApplicationFactory<Program>`). Тести інтеграційні: HTTP-запит до
+застосунку, що працює в пам'яті, → перевірка відповіді → перевірка стану БД (окремий `AppDbContext`) і диска.
+
+* **Окрема тестова БД.** За замовчуванням `Testcontainers` піднімає одноразовий контейнер `postgres:16-alpine`
+  (база `tasktracker_test`), потрібен Docker. Розробницька БД не зачіпається. Без Docker: змінна
+  `TASKTRACKER_TEST_DB` з рядком підключення до порожньої БД, назва якої містить `test` (інакше тести відмовляються
+  стартувати, бо схему буде перестворено).
+* **Фікстури.** `ApiFixture` (одна на весь прогін): БД + застосунок + тимчасова тека для файлів; схема створюється
+  з моделі (`EnsureCreated`). Перед кожним тестом `TRUNCATE … RESTART IDENTITY CASCADE` і очищення теки файлів, тому
+  тести незалежні, а id детерміновані. `IntegrationTestBase.SeedProjectAsync/SeedTaskAsync` готують дані.
+* **Покриття.** `TasksApiTests` (створення, 404/400/422, фільтри/сортування/пагінація, PATCH статусу, PUT, DELETE),
+  `ProjectsUsersCommentsApiTests` (каскадне видалення, учасники, дублікат e-mail, коментарі, `/health`),
+  `AttachmentsApiTests` (завантаження, повернення байт-у-байт, 413/415/400/404, шлях у назві, видалення з диска),
+  `OpenApiTests` (специфікація, summary, problem+json, multipart, Swagger UI).

@@ -1,6 +1,7 @@
 using TaskTracker.Api.Common;
 using TaskTracker.Api.Domain;
 using TaskTracker.Api.Dtos;
+using TaskTracker.Api.Infrastructure.Storage;
 using TaskTracker.Api.Repositories;
 
 namespace TaskTracker.Api.Services;
@@ -9,6 +10,8 @@ public class TaskService(
     ITaskRepository tasks,
     IProjectRepository projects,
     IUserRepository users,
+    IAttachmentRepository attachments,
+    IFileStorage storage,
     IUnitOfWork unitOfWork) : ITaskService
 {
     public async Task<PagedResponse<TaskResponse>> ListAsync(TaskListQuery query, int? projectId, CancellationToken ct = default)
@@ -100,8 +103,16 @@ public class TaskService(
     {
         var task = await tasks.GetByIdAsync(id, ct) ?? throw new NotFoundException("Task", id);
 
+        var filePaths = await attachments.ListStoragePathsByTaskAsync(id, ct);
+
+        // Attachment rows are removed by ON DELETE CASCADE; the files on disk are removed after the commit.
         tasks.Remove(task);
         await unitOfWork.SaveChangesAsync(ct);
+
+        foreach (var path in filePaths)
+        {
+            storage.Delete(path);
+        }
     }
 
     /// <summary>The assignee must exist (400) and be a member of the task's project (422).</summary>

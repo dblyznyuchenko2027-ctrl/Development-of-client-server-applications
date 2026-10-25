@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Black-box check of stages 1-2. Start the API first: dotnet run --project src/TaskTracker.Api
+# Black-box check of stages 1-3. Start the API first: dotnet run --project src/TaskTracker.Api
 # Requires: bash, curl, sed. The API must run in Development (seed data + X-Db-Query-Count header).
 set -u
 BASE="${BASE_URL:-http://localhost:5080}"
@@ -114,6 +114,39 @@ req DELETE "/api/users/$USER_ID";                                      check "de
 req DELETE "/api/comments/$COMMENT_ID";                                check "DELETE comment" 204 "$STATUS"
 req GET "/api/comments/$COMMENT_ID";                                   check "deleted comment -> 404" 404 "$STATUS"
 
+echo "== Stage 3: file attachments =="
+TMP_DIR=$(mktemp -d); trap 'rm -rf "$TMP_DIR"' EXIT
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' > "$TMP_DIR/pixel.png"
+printf 'hello attachment\n' > "$TMP_DIR/notes.txt"
+printf 'MZ\x90\x00\x03\x00' > "$TMP_DIR/setup.exe"
+printf 'MZ\x90\x00\x03\x00' > "$TMP_DIR/fake.png"
+head -c $((5 * 1024 * 1024 + 1)) /dev/zero > "$TMP_DIR/huge.txt"
+
+# upload FILE_PATH FILE_NAME MIME [TASK] -> sets STATUS, CT, BODY
+upload() {
+  local out
+  out=$(curl -s -w $'\n%{http_code}\n%{content_type}' -X POST "$BASE/api/tasks/${4:-$TASK_ID}/attachments" -F "file=@$1;filename=$2;type=$3")
+  CT=$(printf '%s\n' "$out" | tail -n 1)
+  STATUS=$(printf '%s\n' "$out" | tail -n 2 | head -n 1)
+  BODY=$(printf '%s\n' "$out" | sed '$d' | sed '$d')
+}
+
+upload "$TMP_DIR/pixel.png" pixel.png image/png;  check "upload png" 201 "$STATUS"; ATT_ID=$(id_of "$BODY")
+contains "upload response has file name" '"fileName":"pixel.png"' "$BODY"
+upload "$TMP_DIR/notes.txt" notes.txt text/plain; check "upload txt" 201 "$STATUS"; ATT2_ID=$(id_of "$BODY")
+upload "$TMP_DIR/setup.exe" setup.exe application/octet-stream; check "exe -> 415" 415 "$STATUS"
+contains "415 is problem+json" "application/problem+json" "$CT"
+upload "$TMP_DIR/fake.png" fake.png image/png;    check "exe renamed to png -> 415" 415 "$STATUS"
+upload "$TMP_DIR/huge.txt" huge.txt text/plain;   check "file over 5 MiB -> 413" 413 "$STATUS"
+upload "$TMP_DIR/pixel.png" pixel.png image/png 999999; check "upload to unknown task -> 404" 404 "$STATUS"
+req GET "/api/tasks/$TASK_ID/attachments";        check "list attachments" 200 "$STATUS"
+req GET "/api/tasks/$TASK_ID";                    contains "task details list attachments" '"notes.txt"' "$BODY"
+curl -s -o "$TMP_DIR/downloaded.txt" -D "$TMP_DIR/headers.txt" "$BASE/api/attachments/$ATT2_ID/download"
+if cmp -s "$TMP_DIR/notes.txt" "$TMP_DIR/downloaded.txt"; then pass "downloaded file is identical"; else bad "downloaded file differs"; fi
+contains "download content type" "text/plain" "$(tr -d '\r' < "$TMP_DIR/headers.txt")"
+req DELETE "/api/attachments/$ATT_ID";            check "DELETE attachment" 204 "$STATUS"
+req GET "/api/attachments/$ATT_ID/download";      check "deleted attachment -> 404" 404 "$STATUS"
+
 echo "== Cleanup =="
 req DELETE "/api/tasks/$TASK_ID";                                      check "DELETE task" 204 "$STATUS"
 req DELETE "/api/projects/$PROJECT_ID/members/$USER_ID";               check "remove member" 204 "$STATUS"
@@ -121,6 +154,12 @@ req DELETE "/api/projects/$PROJECT_ID";                                check "DE
 req GET "/api/projects/$PROJECT_ID";                                   check "deleted project -> 404" 404 "$STATUS"
 req DELETE "/api/users/$USER_ID";                                      check "DELETE user" 204 "$STATUS"
 req DELETE /api/users/2;                                               check "delete project owner -> 409" 409 "$STATUS"
+
+echo "== Stage 3: OpenAPI / Swagger (Development) =="
+req GET /swagger/v1/swagger.json;                 check "GET swagger.json" 200 "$STATUS"
+contains "openapi 3" '"openapi": "3.' "$BODY"
+contains "attachments upload is documented" '/api/tasks/{taskId}/attachments' "$BODY"
+req GET /swagger/index.html;                      check "Swagger UI page" 200 "$STATUS"
 
 echo "== N+1 guard (Development only: X-Db-Query-Count header) =="
 guard() { # name path max

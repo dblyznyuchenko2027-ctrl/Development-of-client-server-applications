@@ -143,3 +143,42 @@ Content-Type: application/json
 
 ### 405 method not allowed
 DELETE {{baseUrl}}/api/projects
+
+### ---------- Stage 3: OpenAPI ----------
+### OpenAPI 3 document (Swagger UI: http://localhost:5080/swagger)
+GET {{baseUrl}}/swagger/v1/swagger.json
+
+### ---------- Stage 3: Attachments ----------
+### Upload a file (multipart/form-data, field "file"; allowed: png jpg jpeg gif pdf txt md csv, max 5 MiB) -> 201
+POST {{baseUrl}}/api/tasks/1/attachments
+Content-Type: multipart/form-data; boundary=----TaskTracker
+
+------TaskTracker
+Content-Disposition: form-data; name="file"; filename="notes.txt"
+Content-Type: text/plain
+
+Hello from requests.http
+------TaskTracker--
+
+### List attachments of a task
+GET {{baseUrl}}/api/tasks/1/attachments
+
+### Attachment metadata
+GET {{baseUrl}}/api/attachments/1
+
+### Download the file (Content-Disposition + original MIME type)
+GET {{baseUrl}}/api/attachments/1/download
+
+### Delete attachment -> 204 (also removes the file from disk)
+DELETE {{baseUrl}}/api/attachments/1
+
+### 415 unsupported file type
+POST {{baseUrl}}/api/tasks/1/attachments
+Content-Type: multipart/form-data; boundary=----TaskTracker
+
+------TaskTracker
+Content-Disposition: form-data; name="file"; filename="setup.exe"
+Content-Type: application/octet-stream
+
+MZ
+------TaskTracker--

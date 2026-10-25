@@ -59,8 +59,11 @@ public static class Mapping
             t.CreatedAt,
             t.UpdatedAt,
             t.Comments.Select(c => c.ToResponse()).ToList(),
-            t.Attachments.Select(a => new AttachmentResponse(a.Id, a.FileName, a.ContentType, a.SizeBytes, a.CreatedAt)).ToList());
+            t.Attachments.Select(a => a.ToResponse()).ToList());
 
     public static CommentResponse ToResponse(this Comment c) =>
         new(c.Id, c.Text, c.TaskItemId, c.Author.ToSummary(), c.CreatedAt);
+
+    public static AttachmentResponse ToResponse(this Attachment a) =>
+        new(a.Id, a.TaskItemId, a.FileName, a.ContentType, a.SizeBytes, a.CreatedAt);
 }

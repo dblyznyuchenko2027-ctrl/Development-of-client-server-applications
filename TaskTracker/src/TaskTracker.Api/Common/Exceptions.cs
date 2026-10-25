@@ -29,6 +29,16 @@ public sealed class BusinessRuleException(string message) : AppException(message
 {
 }
 
+/// <summary>The uploaded file is larger than the configured limit -> 413.</summary>
+public sealed class PayloadTooLargeException(string message) : AppException(message)
+{
+}
+
+/// <summary>The uploaded file has a type that is not allowed (extension, MIME type or content) -> 415.</summary>
+public sealed class UnsupportedFileTypeException(string message) : AppException(message)
+{
+}
+
 /// <summary>Field-level validation error that can only be detected with data access -> 400 with an "errors" map.</summary>
 public sealed class ValidationFailedException : AppException
 {

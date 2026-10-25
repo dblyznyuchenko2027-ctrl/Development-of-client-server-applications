@@ -13,6 +13,8 @@ public static class ProblemDetailsDefaults
         400 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1",
         404 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.5",
         409 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.10",
+        413 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14",
+        415 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.16",
         422 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.21",
         >= 500 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.1",
         _ => "about:blank"

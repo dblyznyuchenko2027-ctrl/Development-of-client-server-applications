@@ -71,7 +71,14 @@ public record TaskDetailResponse(
     IReadOnlyList<CommentResponse> Comments,
     IReadOnlyList<AttachmentResponse> Attachments);
 
-public record AttachmentResponse(int Id, string FileName, string ContentType, long SizeBytes, DateTime CreatedAt);
+/// <summary>Metadata of a file attached to a task. The content itself is downloaded from <c>/api/attachments/{id}/download</c>.</summary>
+/// <param name="Id">Attachment id.</param>
+/// <param name="TaskId">Id of the task the file belongs to.</param>
+/// <param name="FileName">Original (sanitised) file name.</param>
+/// <param name="ContentType">MIME type determined by the server from the validated file extension.</param>
+/// <param name="SizeBytes">Size in bytes.</param>
+/// <param name="CreatedAt">Upload time (UTC).</param>
+public record AttachmentResponse(int Id, int TaskId, string FileName, string ContentType, long SizeBytes, DateTime CreatedAt);
 
 public class TaskListQuery : PageQuery
 {

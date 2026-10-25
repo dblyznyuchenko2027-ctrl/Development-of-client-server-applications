@@ -9,7 +9,7 @@ namespace TaskTracker.Api.Infrastructure;
 /// Single place that turns exceptions into RFC 7807 problem responses with consistent status codes.
 /// Anything not recognised becomes a 500 without leaking internals (details only in Development).
 /// </summary>
-public sealed partial class GlobalExceptionHandler(
+public sealed class GlobalExceptionHandler(
     IProblemDetailsService problemDetailsService,
     IHostEnvironment environment,
     ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
@@ -29,16 +29,13 @@ public sealed partial class GlobalExceptionHandler(
         var problem = Map(exception);
         var status = problem.Status ?? StatusCodes.Status500InternalServerError;
 
-        var method = httpContext.Request.Method;
-        var path = httpContext.Request.Path.ToString();
-
         if (status >= 500)
         {
-            LogUnhandled(logger, exception, method, path);
+            logger.LogError(exception, "Unhandled exception for {Method} {Path}", httpContext.Request.Method, httpContext.Request.Path);
         }
         else
         {
-            LogClientError(logger, method, path, status, exception.Message);
+            logger.LogInformation("Request {Method} {Path} failed with {Status}: {Message}", httpContext.Request.Method, httpContext.Request.Path, status, exception.Message);
         }
 
         httpContext.Response.StatusCode = status;
@@ -49,12 +46,6 @@ public sealed partial class GlobalExceptionHandler(
             Exception = exception
         });
     }
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception for {Method} {Path}")]
-    private static partial void LogUnhandled(ILogger logger, Exception exception, string method, string path);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Request {Method} {Path} failed with {Status}: {Message}")]
-    private static partial void LogClientError(ILogger logger, string method, string path, int status, string message);
 
     private static Microsoft.AspNetCore.Mvc.ProblemDetails Create(int status, string title, string? detail) => new()
     {
@@ -78,6 +69,16 @@ public sealed partial class GlobalExceptionHandler(
 
             case ConflictException e:
                 return Create(StatusCodes.Status409Conflict, "Conflict", e.Message);
+
+            case PayloadTooLargeException e:
+                return Create(StatusCodes.Status413PayloadTooLarge, "File too large", e.Message);
+
+            case UnsupportedFileTypeException e:
+                return Create(StatusCodes.Status415UnsupportedMediaType, "Unsupported file type", e.Message);
+
+            // Kestrel / [RequestSizeLimit] rejected the request body before it reached the service.
+            case BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge }:
+                return Create(StatusCodes.Status413PayloadTooLarge, "File too large", "The request body exceeds the maximum allowed size.");
 
             case BusinessRuleException e:
                 return Create(StatusCodes.Status422UnprocessableEntity, "Business rule violation", e.Message);

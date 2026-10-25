@@ -34,6 +34,7 @@ builder.Services
     .AddApiValidationProblemDetails();
 
 builder.Services.AddApiErrorHandling();
+builder.Services.AddOpenApiDocumentation();
 
 builder.Services
     .AddHealthChecks()
@@ -59,10 +60,17 @@ if (app.Environment.IsDevelopment())
     await DbSeeder.SeedAsync(db);
 }
 
+// Interactive documentation: /swagger (UI) and /swagger/v1/swagger.json (OpenAPI 3).
+// Always on in Development; in other environments only when Swagger:Enabled=true.
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))
+{
+    app.UseOpenApiDocumentation();
+}
+
 app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
 
-// Needed for WebApplicationFactory<Program> in integration tests (stage 3).
+// Needed for WebApplicationFactory<Program> in the integration tests (tests/TaskTracker.Tests).
 public partial class Program;
