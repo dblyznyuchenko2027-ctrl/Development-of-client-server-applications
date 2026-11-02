@@ -1,133 +1,92 @@
-# TaskTracker — наскрізний проєкт ОК20 «Розробка клієнт-серверних застосунків» (семестр 7)
+# TaskTracker — Етапи 2–3 (Python + Django)
 
-Тема: **3.2. Система керування задачами (трекер задач)**.
-Стек: C# / ASP.NET Core 8 (Web API), Entity Framework Core 8, PostgreSQL 16.
+REST API для керування користувачами, проєктами, задачами, коментарями та файлами. Реалізація: Python 3.11+, Django 5, Django REST Framework.
 
-> Поточний стан: **етап 2 — CRUD, зв'язки між сутностями, валідація та обробка помилок**.
-> Конвенції API, формат помилок і розбір N+1: [docs/api.md](docs/api.md).
+## Запуск у Windows / VS Code
 
-## Вимоги
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python manage.py makemigrations tracker
+python manage.py migrate
+python manage.py runserver
+```
 
-- [.NET SDK 8](https://dotnet.microsoft.com/download)
-- Docker (для PostgreSQL) або власний встановлений PostgreSQL 14+
+За замовчуванням використовується SQLite — PostgreSQL для локального запуску не потрібен. Django автоматично створює окрему тестову базу під час запуску тестів.
+
+## OpenAPI / Swagger (Етап 3)
+
+- Swagger UI: http://127.0.0.1:8000/api/docs/
+- ReDoc: http://127.0.0.1:8000/api/redoc/
+- OpenAPI JSON: http://127.0.0.1:8000/api/schema/
+
+## Основні endpoint-и
+
+| Метод | Endpoint | Опис |
+|---|---|---|
+| GET | `/api/health/` | Перевірка API |
+| CRUD | `/api/users/` | Користувачі |
+| CRUD | `/api/projects/` | Проєкти з вкладеними задачами |
+| PUT/DELETE | `/api/projects/{id}/members/{user_id}/` | Додати/видалити учасника |
+| CRUD | `/api/tasks/` | Задачі з коментарями |
+| PATCH | `/api/tasks/{id}/status/` | Змінити статус задачі |
+| GET/POST | `/api/projects/{id}/tasks/` | Задачі проєкту |
+| GET/POST | `/api/tasks/{id}/comments/` | Коментарі задачі |
+| CRUD | `/api/comments/` | Коментарі |
+| CRUD | `/api/attachments/` | Метадані файлів |
+| POST | `/api/files/upload/` | Завантажити файл (multipart/form-data) |
+| GET | `/api/files/{id}/download/` | Завантажити файл клієнту |
+
+## Фільтрація, пошук, сортування, пагінація
+
+```http
+GET /api/tasks/?page=2&status=Todo&priority=High&ordering=-created_at
+GET /api/tasks/?search=підготувати
+GET /api/comments/?task=1
+```
+
+DRF повертає колекції сторінками по 10 елементів. Фільтри доступні для полів, зазначених у ViewSet. `ordering=-created_at` сортує за спаданням.
+
+## Завантаження файлів
+
+Надішліть `multipart/form-data` на `/api/files/upload/` з полями:
+- `task`: ID задачі;
+- `file`: файл.
+
+Дозволені типи: PNG, JPEG, PDF, TXT. Максимальний розмір — 5 МБ. У відповіді буде `download_url`. Файл можна отримати через GET за цим URL.
+
+Приклад через curl:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/files/upload/ \
+  -F "task=1" -F "file=@notes.txt"
+```
+
+## Інтеграційні тести (Етап 3)
+
+```powershell
+python manage.py test tracker
+```
+
+Django TestCase запускає тести в окремій ізольованій тестовій базі (test database), створює тестові fixtures через `setUp()` і очищує її після тестів. Тести перевіряють запит, HTTP-відповідь і зміни в БД: створення задачі/коментаря, вкладені задачі проєкту, RFC 7807-помилки, завантаження/скачування файлу та відхилення неправильного типу файлу.
+
+## RFC 7807 Problem Details
+
+Помилки API повертаються з `Content-Type: application/problem+json` та полями `type`, `title`, `status`, `detail`, `errors`. Наприклад, помилка валідації має HTTP 400.
+
+## Оптимізація N+1
+
+У `tracker/views.py` використані:
+- `select_related()` для FK (owner, project, assignee, author);
+- `prefetch_related()` для reverse/M2M зв’язків (tasks, comments, members, attachments).
 
 ## Структура
 
-```
-TaskTracker.sln
-├── docker-compose.yml          # PostgreSQL для розробки
-├── .env.example                # шаблон змінних (реальний .env у git не потрапляє)
-├── .editorconfig               # правила стилю й аналізу коду
-├── Directory.Build.props       # спільні налаштування збірки (nullable, аналізатори)
-├── docs/er-diagram.md          # ER-діаграма
-├── docs/api.md                 # конвенції API, помилки RFC 7807, N+1
-├── scripts/smoke-test.sh       # швидка перевірка API
-├── requests.http               # приклади запитів (VS Code REST Client / Rider)
-└── src/TaskTracker.Api
-    ├── Controllers/            # HTTP-шар (приймає/повертає DTO)
-    ├── Services/               # бізнес-логіка
-    ├── Repositories/           # доступ до даних (generic + спеціалізовані) + UnitOfWork
-    ├── Data/                   # AppDbContext, Fluent API конфігурації, Migrations, сидер
-    ├── Domain/                 # сутності та enum-и
-    ├── Dtos/                   # моделі запитів/відповідей, query-моделі (пагінація/фільтри)
-    ├── Common/                 # винятки, пагінація, сортування
-    ├── Infrastructure/         # глобальний обробник помилок (RFC 7807), лічильник SQL-запитів
-    └── Extensions/             # реєстрація залежностей, налаштування обробки помилок
-```
+- `config/` — конфігурація Django та маршрути документації;
+- `tracker/models.py` — моделі та зв’язки;
+- `tracker/serializers.py` — серіалізація та валідація;
+- `tracker/views.py` — CRUD, eager loading і файлові endpoint-и;
+- `tracker/tests.py` — інтеграційні тести.
 
-Потік залежностей: `Controller → Service → Repository → AppDbContext`.
-
-## Запуск «з нуля»
-
-```bash
-# 1. База даних
-cp .env.example .env            # відредагуйте POSTGRES_PASSWORD
-docker compose up -d db
-
-# 2. Рядок підключення (секрет НЕ зберігається в репозиторії)
-dotnet user-secrets set "ConnectionStrings:Default" \
-  "Host=localhost;Port=5432;Database=tasktracker;Username=tasktracker;Password=<ваш POSTGRES_PASSWORD>" \
-  --project src/TaskTracker.Api
-# альтернатива: змінна оточення
-#   export ConnectionStrings__Default="Host=localhost;...;Password=..."      (Linux/macOS)
-#   $env:ConnectionStrings__Default="Host=localhost;...;Password=..."        (PowerShell)
-
-# 3. Інструменти та збірка
-dotnet tool restore
-dotnet build
-
-# 4. Міграції (якщо папки src/TaskTracker.Api/Data/Migrations ще немає — створити першу)
-dotnet ef migrations add InitialCreate --project src/TaskTracker.Api --output-dir Data/Migrations
-dotnet ef database update --project src/TaskTracker.Api
-
-# 5. Запуск
-dotnet run --project src/TaskTracker.Api
-```
-
-У середовищі `Development` застосунок при старті сам застосовує міграції та додає демо-дані
-(3 користувачі, 1 проєкт, 3 задачі). У `Production` цього не відбувається.
-
-API слухає на `http://localhost:5080`.
-
-## Запуск у Windows (PowerShell)
-
-```powershell
-Expand-Archive -Path .\TaskTracker_full.zip -DestinationPath .   # або «Видобути все…» у провіднику
-cd TaskTracker
-copy .env.example .env                                            # змініть POSTGRES_PASSWORD
-docker compose up -d db
-dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=tasktracker;Username=tasktracker;Password=ВАШ_ПАРОЛЬ" --project src/TaskTracker.Api
-dotnet tool restore
-dotnet build
-dotnet ef migrations add InitialCreate --project src/TaskTracker.Api --output-dir Data/Migrations
-dotnet run --project src/TaskTracker.Api
-curl.exe -i http://localhost:5080/health
-```
-
-`scripts/smoke-test.sh` запускайте з Git Bash або WSL; у PowerShell користуйтесь `requests.http`.
-
-## Змінні оточення
-
-| Змінна | Призначення |
-|---|---|
-| `POSTGRES_PASSWORD` | пароль БД для `docker-compose` (файл `.env`) |
-| `ConnectionStrings__Default` | рядок підключення до PostgreSQL (або user-secrets) |
-| `ASPNETCORE_ENVIRONMENT` | `Development` / `Production` |
-
-## Endpoints (етап 2)
-
-| Ресурс | Операції |
-|---|---|
-| `/health` | GET — стан застосунку та БД |
-| `/api/projects` | GET (список), POST; `/{id}`: GET, PUT, DELETE; `/{id}/members/{userId}`: PUT, DELETE |
-| `/api/tasks`, `/api/projects/{projectId}/tasks` | GET (список із фільтрами); POST у проєкт; `/api/tasks/{id}`: GET, PUT, DELETE; `/api/tasks/{id}/status`: PATCH |
-| `/api/tasks/{taskId}/comments`, `/api/comments/{id}` | GET (список), POST; GET, PUT, DELETE |
-| `/api/users` | GET (список), POST; `/{id}`: GET, PUT, DELETE |
-
-Усі колекції підтримують `page`, `pageSize`, `sort` і власні фільтри (`status`, `priority`, `assigneeId`, `search`, …).
-Повна таблиця кодів станів, фільтрів і полів сортування — у [docs/api.md](docs/api.md); приклади запитів — `requests.http`.
-
-Нових міграцій на етапі 2 немає: схема БД не змінювалась.
-
-## Перевірка етапів 1–2
-
-```bash
-dotnet build                                   # 0 помилок
-dotnet format --verify-no-changes              # стиль коду / форматування
-dotnet run --project src/TaskTracker.Api       # в іншому терміналі (Development)
-./scripts/smoke-test.sh                        # усі рядки PASS (CRUD, помилки 400/404/409/422, пагінація, N+1)
-curl -i http://localhost:5080/health           # 200 Healthy
-curl -s -D - -o /dev/null "http://localhost:5080/api/tasks?pageSize=100" | grep -i x-db-query-count   # 2
-docker exec -it tasktracker-db psql -U tasktracker -d tasktracker -c '\dt'
-```
-
-`\dt` має показати: `users`, `projects`, `project_members`, `tasks`, `comments`, `attachments`, `__EFMigrationsHistory`.
-
-## Що додано на етапах
-
-- **Етап 1:** структура рішення, аналізатори/форматування, `/health`, доменна модель (6 сутностей), ER-діаграма,
-  PostgreSQL + EF Core, перша міграція, шари Controller–Service–Repository, сидер, `docker-compose`.
-- **Етап 2:** повний CRUD для проєктів, задач, коментарів і користувачів; зв'язки 1:N з вкладеними даними;
-  усунення N+1 (`Include`/`ThenInclude`, `AsSplitQuery`, проєкції) з діагностичним заголовком `X-Db-Query-Count`;
-  пагінація, фільтрація та сортування колекцій; валідація DTO; єдиний формат помилок RFC 7807; розширений сидер
-  (30 демо-задач) і smoke-тест.
+Для навчального проєкту доступ до API відкритий (`AllowAny`). У production потрібно додати автентифікацію, права доступу та налаштування безпечного сховища файлів.
