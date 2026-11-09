@@ -1,0 +1,19 @@
+# секрети та локальна конфігурація (12-factor: конфіг поза кодом)
+.env
+.env.*
+!.env.dev.example
+!.env.prod.example
+
+# Python / середовище
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# локальні дані
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+.idea/
+.vscode/
